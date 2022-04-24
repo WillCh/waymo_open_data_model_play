@@ -1,4 +1,4 @@
-"""Module to read TFRecord files' Scenario proto message
+"""Module to read TFRecord files' Scenario messages and extract the data.
 
 """
 import tensorflow as tf
@@ -54,9 +54,11 @@ if __name__ == '__main__':
     filenames = [
         '/home/ryan/Documents/waymo_motion/data/scenario/testing/testing.tfrecord-00000-of-00150']
     raw_dataset = tf.data.TFRecordDataset(filenames)
-
-    for raw_record in raw_dataset.take(1):
-        example = scenario_pb2.Scenario()
-        example.ParseFromString(raw_record.numpy())
-        print(example)
-        break
+    num = 0
+    for raw_record in raw_dataset:
+        # example = scenario_pb2.Scenario()
+        # example.ParseFromString(raw_record.numpy())
+        # print(example)
+        # break
+        num += 1
+    print(num)
