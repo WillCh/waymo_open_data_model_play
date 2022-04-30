@@ -1,4 +1,4 @@
-"""Module to read TFRecord files' Scenario messages and extract the data.
+"""Module to read TFRecord files' Scenario messages to pickle files so that we can build the loader.
 
 """
 import tensorflow as tf
@@ -14,11 +14,15 @@ class DataConverter:
     def __init__(self):
         """Default constructor for the converter class.
         """
-        self.__converted_data_maps = []
+        # The list which contains the dicts. Each dict represents one training
+        # instance. The key of dict is the name of feature, the val is the np
+        # arrays.
+        self._converted_data_list = []
+        self._data_size = 0
 
     def process_one_tfrecord(self, scenario):
         """Converts the Scenario proto to the key-val dict. Inserts such
-        dict into the __converted_data_maps array.
+        dict into the _converted_data_list array.
 
         Args:
             scenario: scenario_pb2.Scenario object.
@@ -26,6 +30,29 @@ class DataConverter:
         Returns:
             None
         """
+        # Process the sdc_history feature.
+        # The feature dimensions are: [attributions]. The attributions
+        # include x, y, z, heading, v_x, v_y, length, width, height, valid],
+        # which are centralized based on the sdc's current pose (i.e. x, y, heading).
+
+        # Process the other agent history feature.
+        # The feature dimensions are: [# other agents, attributions]. The
+        # attributions include x, y, z, heading, v_x, v_y, length, width, height, valid],
+        # which are centralized based on the sdc's current pose (i.e. x, y, heading).
+
+        # Process the other agent future groundtruth.
+        # The feature dimensions are: [# other agents, x, y, heading, valid],
+        # which are centralized based on the sdc's current pose (i.e. x, y, heading).
+
+        # Process the sdc future groundtruth.
+        # The feature dimensions are: [4], the elements are x, y, heading, valid.
+        # which are centralized based on the sdc's current pose (i.e. x, y, heading).
+
+        # Process the roadmap polyline features.
+        # The feautre dimensions are: [num of polylines, attributions]. The attributions
+        # are: [x_s, y_s, x_e, y_e, p_x, p_y, length, |p|]
+
+        # process the metadata features.
 
     def process_one_tfrecord_file(self, src_file_path, dst_file_path):
         """Read one TFRecord file based on src_file_path, and dump it as a pickle file.
@@ -52,13 +79,13 @@ class DataConverter:
 
 if __name__ == '__main__':
     filenames = [
-        '/home/ryan/Documents/waymo_motion/data/scenario/testing/testing.tfrecord-00000-of-00150']
+        '/home/willch/Proj/waymo_open_challenage/data/training/uncompressed_scenario_training_training.tfrecord-00000-of-01000']
     raw_dataset = tf.data.TFRecordDataset(filenames)
     num = 0
     for raw_record in raw_dataset:
-        # example = scenario_pb2.Scenario()
-        # example.ParseFromString(raw_record.numpy())
-        # print(example)
-        # break
+        example = scenario_pb2.Scenario()
+        example.ParseFromString(raw_record.numpy())
+        print(example)
+        break
         num += 1
     print(num)
