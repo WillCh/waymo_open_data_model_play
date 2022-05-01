@@ -1,7 +1,9 @@
 """Module to read TFRecord files' Scenario messages to pickle files so that we can build the loader.
 
 """
+from ossaudiodev import SNDCTL_DSP_GETBLKSIZE
 import tensorflow as tf
+import math
 
 import numpy as np
 from waymo_open_dataset.protos import scenario_pb2
@@ -30,10 +32,19 @@ class DataConverter:
         Returns:
             None
         """
+        one_data_instance = {}
         # Process the sdc_history feature.
-        # The feature dimensions are: [attributions]. The attributions
+        # The feature dimensions are: [history_timestamps, attributions]. The attributions
         # include x, y, z, heading, v_x, v_y, length, width, height, valid],
         # which are centralized based on the sdc's current pose (i.e. x, y, heading).
+        sdc_track = scenario.tracks[scenario.sdc_track_index]
+        current_sdc_state = sdc_track.states[scenario.current_time_index]
+        sdc_history_feature = []
+        for i in range(scenario.current_time_index):
+            sdc_history_feature.append(self.normalize_object_state(
+                current_sdc_state.center_x,current_sdc_state.center_y, 
+                current_sdc_state.center_z, current_sdc_state.heading, sdc_track.states[i]))
+        one_data_instance['sdc_history_feature'] = sdc_history_feature
 
         # Process the other agent history feature.
         # The feature dimensions are: [# other agents, attributions]. The
@@ -53,6 +64,48 @@ class DataConverter:
         # are: [x_s, y_s, x_e, y_e, p_x, p_y, length, |p|]
 
         # process the metadata features.
+
+    def normalize_object_state(self, sdc_x, sdc_y, sdc_z, sdc_heading, object_state):
+        """Normalizes the object_state's x, y, z, heading, v_x, v_y by the sdc_x, sdc_y
+        and sdc_heading.
+        
+        Args:
+            sdc_x: float, the pose of sdc at x axis (global coordination).
+            sdc_y: float, the pose of sdc at y axis (global coordination).
+            sdc_z: float, the pose of sdc at z axis (global coordination).
+            sdc_heading: float (rad), the heading of sdc (the angle between
+                sdc heading and global x axis).
+            object_state: proto of ObjectState.
+
+        Returns: a list of normalized x, y, z, heading, v_x, v_y,
+            length, width, height, valid
+        """
+        if not object_state.valid:
+            return [0] * 10
+        normalized_x = object_state.center_x - sdc_x
+        normalized_y = object_state.center_y - sdc_y
+        normalized_z = object_state.center_z - sdc_z
+        normalized_heading = self.normalize_heading_to_range(
+            object_state.heading - sdc_heading)
+        # rotate the velocity vector by the sdc heading clockwise.
+        normalized_v_x = (object_state.velocity_x * math.cos(sdc_heading) +
+            object_state.velocity_y * math.sin(sdc_heading))
+        normalized_v_y = (-object_state.velocity_x * math.sin(sdc_heading) +
+            object_state.velocity_y * math.cos(sdc_heading))
+
+        return [normalized_x, normalized_y, normalized_z, normalized_heading, normalized_v_x, normalized_v_y,
+                object_state.length, object_state.width, object_state.height, object_state.valid]
+    def normalize_heading_to_range(self, heading):
+        """Converts the heading (rads) to range of [-pi, pi)
+        
+        Args:
+            heading: float, the rad of the heading.
+        
+        Returns: the normalized heading (float in rad)
+        """
+        updated_h = heading % (2.0 * math.pi)
+        updated_h = updated_h - 2 * math.pi if updated_h > math.pi else updated_h
+        return updated_h
 
     def process_one_tfrecord_file(self, src_file_path, dst_file_path):
         """Read one TFRecord file based on src_file_path, and dump it as a pickle file.
