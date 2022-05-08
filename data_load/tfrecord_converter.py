@@ -53,7 +53,7 @@ class DataConverter:
             sdc_history_feature.append(self.normalize_object_state(
                 current_sdc_state.center_x,current_sdc_state.center_y, 
                 current_sdc_state.center_z, current_sdc_state.heading, sdc_track.states[i]))
-        one_data_instance['sdc_history_feature'] = sdc_history_feature
+        one_data_instance['sdc_history_feature'] = np.array(sdc_history_feature)
 
         # Process the other agent history feature.
         # The feature dimensions are: [# other agents, history_timestamps, attributions]. The
@@ -82,7 +82,7 @@ class DataConverter:
             zero_agent_feature = [zero_feature] * scenario.current_time_index
             for _ in range(self._max_agent_num - len(agent_history_feature)):
                 agent_history_feature.append(zero_agent_feature)
-        one_data_instance['agent_history_feature'] = agent_history_feature
+        one_data_instance['agent_history_feature'] = np.array(agent_history_feature)
         
         # TODO (haoyu): process the other agent future groundtruth.
         # The feature dimensions are: [# other agents, future_timestamps, attributions],
@@ -98,7 +98,7 @@ class DataConverter:
                 current_sdc_state.center_x,current_sdc_state.center_y, 
                 current_sdc_state.center_z, current_sdc_state.heading, sdc_track.states[i],
                 is_label=True))
-        one_data_instance['sdc_future_feature'] = sdc_future_feature
+        one_data_instance['sdc_future_feature'] = np.array(sdc_future_feature)
 
         # Process the roadmap polyline features.
         # The feautre dimensions are: [num of polylines, attributions]. The attributions
@@ -140,7 +140,7 @@ class DataConverter:
             zero_feature = [0] * 10
             for _ in range(self._max_polyline_num - len(map_feature)):
                 map_feature.append(zero_agent_feature)
-        one_data_instance['map_feature'] = map_feature
+        one_data_instance['map_feature'] = np.array(map_feature)
 
         # process the metadata features.
         one_data_instance['scenario_id'] = scenario.scenario_id
@@ -328,12 +328,12 @@ class DataConverter:
                 self.process_one_tfrecord_file(src_file_name, dst_file_name)
         # Writes the dict to the disk.
         dst_metadata_name = os.path.join(dst_folder_path,
-                                         '_example_id_to_file_name.pickle')
+                                         'example_id_to_file_name.pickle')
         with open(dst_metadata_name, 'wb') as handle:
             pickle.dump(self._example_id_to_file_name, handle)
         
         dst_metadata_name = os.path.join(dst_folder_path,
-                                         '_file_name_to_metadata.pickle')
+                                         'file_name_to_metadata.pickle')
         with open(dst_metadata_name, 'wb') as handle:
             pickle.dump(self._file_name_to_metadata, handle)
 
@@ -341,7 +341,7 @@ class DataConverter:
 if __name__ == '__main__':
     filenames = [
         '/home/willch/Proj/waymo_open_challenage/data/training/uncompressed_scenario_training_training.tfrecord-00000-of-01000']
-    data_converter = DataConverter(64, 8)
+    data_converter = DataConverter(64, 1024)
     #data_converter.process_one_tfrecord_file(filenames[0], '/home/willch/Proj/waymo_open_challenage/pickle_files/test/test.pickle')
     data_converter.process_all_tfrecord_file(
         '/home/willch/Proj/waymo_open_challenage/data/training/',
