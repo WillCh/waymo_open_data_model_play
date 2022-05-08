@@ -5,6 +5,8 @@ from ossaudiodev import SNDCTL_DSP_GETBLKSIZE
 import tensorflow as tf
 import math
 import pickle
+import os
+import re
 
 import numpy as np
 from waymo_open_dataset.protos import scenario_pb2
@@ -26,6 +28,8 @@ class DataConverter:
         self._data_size = 0
         self._max_agent_num = max_agent_num
         self._max_polyline_num = max_polyline_num
+        self._example_id_to_file_name = {}
+        self._file_name_to_metadata = {}
 
     def process_one_tfrecord(self, scenario):
         """Converts the Scenario proto to the key-val dict. Inserts such
@@ -98,17 +102,76 @@ class DataConverter:
 
         # Process the roadmap polyline features.
         # The feautre dimensions are: [num of polylines, attributions]. The attributions
-        # are: [x_s, y_s, x_e, y_e, p_x, p_y, length, |p|]
+        # are: [x_s, y_s, x_e, y_e, p_x, p_y, |P|, |e-s|, lane_type, lane_id].
         map_feature = []
         for m_feature in scenario.map_features:
             if m_feature.HasField("lane"):
-
+                lane_features = self.generate_polyline_feature(
+                    current_sdc_state.center_x,current_sdc_state.center_y, 
+                    current_sdc_state.heading, m_feature.lane.polyline, m_feature.lane.type, m_feature.id)
+                map_feature.extend(lane_features)
             elif m_feature.HasField("road_line"):
+                road_line_feature = self.generate_polyline_feature(
+                    current_sdc_state.center_x,current_sdc_state.center_y, 
+                    current_sdc_state.heading, m_feature.road_line.polyline, m_feature.road_line.type + 4,
+                    m_feature.id)
+                map_feature.extend(road_line_feature)
             elif m_feature.HasField("road_edge"):
+                road_edge_feature = self.generate_polyline_feature(
+                    current_sdc_state.center_x,current_sdc_state.center_y, 
+                    current_sdc_state.heading, m_feature.road_edge.polyline, m_feature.road_edge.type + 4 + 9,
+                    m_feature.id)
+                map_feature.extend(road_edge_feature)
             elif m_feature.HasField("stop_sign"):
+                stop_sign_feature = self.generate_polyline_feature(
+                    current_sdc_state.center_x,current_sdc_state.center_y, 
+                    current_sdc_state.heading, [m_feature.stop_sign.position, m_feature.stop_sign.position],
+                    4 + 9 + +3 + 1, m_feature.id)
+                map_feature.extend(stop_sign_feature)
+            # TODO (haoyu): add the features for crosswalk.
+        # Sort and filter the polyline elements.
+        def polyline_dist_to_sdc(polyline_feature_list):
+            return polyline_feature_list[6]
+        map_feature.sort(key=polyline_dist_to_sdc)
+        # Cut the agent by max_agent_num or append it with zeros.
+        if len(map_feature) > self._max_polyline_num:
+            map_feature = map_feature[0 : self._max_polyline_num]
+        elif len(agent_history_feature) < self._max_polyline_num:
+            zero_feature = [0] * 10
+            for _ in range(self._max_polyline_num - len(map_feature)):
+                map_feature.append(zero_agent_feature)
+        one_data_instance['map_feature'] = map_feature
 
         # process the metadata features.
+        one_data_instance['scenario_id'] = scenario.scenario_id
         self._converted_data_list.append(one_data_instance)
+
+    def generate_polyline_feature(self, sdc_x, sdc_y, sdc_heading, 
+                                  points, lane_type, lane_id):
+        """Generate the polyline feature lists for the points.
+
+        Args:
+            sdc_x: The x pose of sdc at the current timestamp.
+            sdc_y: The y pose of sdc at the current timestamp.
+            sdc_heading: The heading of sdc at the current timestamp.
+            points: list of MapPoint proto.
+            lane_type: int representing the type of lane.
+            lane_id: int representing a unique id of the lane.
+
+        Returns: list of list of extracted features. Each list element is a list 
+            of feature attributions: [s_x, s_y, e_x, e_y, p_x, p_y,
+            distance to ego, and length of polyline, lane_type, lane_id]
+        """
+        results = []
+        for point_idx in range(len(points)- 1):
+            one_polyline_feature = self.normalize_one_polyline_section(
+                points[point_idx].x, points[point_idx].y, 
+                points[point_idx + 1].x, points[point_idx + 1].y,
+                sdc_x, sdc_y, sdc_heading)
+            one_polyline_feature.append(lane_type)
+            one_polyline_feature.append(lane_id)
+            results.append(one_polyline_feature)
+        return results
 
     def normalize_object_state(self, sdc_x, sdc_y, sdc_z, sdc_heading, object_state,
                                is_label=False):
@@ -168,13 +231,13 @@ class DataConverter:
         https://diego.assencio.com/?index=ec3d5dfdfc0b6a0d147a656f0af332bd.
 
         Args:
-            start_x:
-            start_y:
-            end_x:
-            end_y:
-            sdc_x:
-            sdc_y:
-            sdc_heading:
+            start_x: global x coordination of the start point in the vector.
+            start_y: global y coordination of the start point in the vector.
+            end_x: global x coordination of the end point in the vector.
+            end_y: global y coordination of the end point in the vector.
+            sdc_x: global x coordination of the sdc pose.
+            sdc_y: global y coordination of the sdc pose.
+            sdc_heading: global heading of the sdc.
 
         Returns: the normalized polyline segment attributions: [s_x, s_y, e_x, e_y, p_x, p_y,
             distance to ego, and length of polyline]
@@ -220,33 +283,70 @@ class DataConverter:
         """
         raw_dataset = tf.data.TFRecordDataset(src_file_path)
         num = 0
+        example_id = self._data_size
         for raw_record in raw_dataset:
             example = scenario_pb2.Scenario()
             example.ParseFromString(raw_record.numpy())
             self.process_one_tfrecord(example)
+            self._example_id_to_file_name[example_id] = dst_file_path
             num += 1
-            break
+            example_id += 1
         with open(dst_file_path, 'wb') as handle:
             pickle.dump(self._converted_data_list, handle)
+        file_metadata = {}
+        file_metadata['start_idx'] = self._data_size
+        file_metadata['data_size'] = num
+        self._file_name_to_metadata[dst_file_path] = file_metadata
+        self._data_size += num
+        self._converted_data_list = []
 
-    def process_all_tfrecord_file(self, src_folder_path, dst_folder_path):
+    def process_all_tfrecord_file(self, src_folder_path, dst_folder_path, 
+                                  src_file_prefix, dst_file_prefix):
         """Read all TFRecord files based on source folder path, and dump all of them into
-        destination file path.
+        destination file path. This function also constructs the data instance index
+        dict which will be used for pytorch data loader.
 
         Args:
             src_folder_path: str pointing to a folder which holds TFRecord files.
             dst_folder_path: str pointing to the destination folder to write pickle files.
+            src_file_prefix: prefix of source file. We use this to check whether a file
+                should be read in the src folder.
+            dst_file_prefix: prefix of dst file, which we plan to write to.
 
         Returns:
             None
         """
+        for file in os.listdir(src_folder_path):
+            if file.startswith(src_file_prefix):
+                src_file_name = os.path.join(src_folder_path, file)
+                print("processing src: {}".format(src_file_name))
+                start_idx = file.find('.tfrecord') + 9
+                matched_tail = file[start_idx:]
+                dst_file_name = dst_file_prefix + matched_tail + '.pickle'
+                dst_file_name = os.path.join(dst_folder_path, dst_file_name)
+                print('dst is {}'.format(dst_file_name))
+                self.process_one_tfrecord_file(src_file_name, dst_file_name)
+        # Writes the dict to the disk.
+        dst_metadata_name = os.path.join(dst_folder_path,
+                                         '_example_id_to_file_name.pickle')
+        with open(dst_metadata_name, 'wb') as handle:
+            pickle.dump(self._example_id_to_file_name, handle)
+        
+        dst_metadata_name = os.path.join(dst_folder_path,
+                                         '_file_name_to_metadata.pickle')
+        with open(dst_metadata_name, 'wb') as handle:
+            pickle.dump(self._file_name_to_metadata, handle)
+
 
 if __name__ == '__main__':
     filenames = [
         '/home/willch/Proj/waymo_open_challenage/data/training/uncompressed_scenario_training_training.tfrecord-00000-of-01000']
-    data_converter = DataConverter(64, 512)
-    data_converter.process_one_tfrecord_file(filenames[0], '/home/willch/Proj/waymo_open_challenage/pickle_files/test/test.pickle')
-
+    data_converter = DataConverter(64, 8)
+    #data_converter.process_one_tfrecord_file(filenames[0], '/home/willch/Proj/waymo_open_challenage/pickle_files/test/test.pickle')
+    data_converter.process_all_tfrecord_file(
+        '/home/willch/Proj/waymo_open_challenage/data/training/',
+        '/home/willch/Proj/waymo_open_challenage/pickle_files/training/',
+        'uncompressed_scenario_training_training', 'converted_pickle_data')
     """
     raw_dataset = tf.data.TFRecordDataset(filenames)
     num = 0
