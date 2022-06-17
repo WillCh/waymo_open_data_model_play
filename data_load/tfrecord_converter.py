@@ -25,15 +25,30 @@ class DataConverter:
         # instance. The key of dict is the name of feature, the val is the np
         # arrays.
         self._converted_data_list = []
+        # Number of training instance.
         self._data_size = 0
         self._max_agent_num = max_agent_num
         self._max_polyline_num = max_polyline_num
+        # The key is example id (an global int which is the idx of example instance).
+        # The value is saved pickle file name. The torch will use this dict to
+        # load specific pickle file and find the training instance.
         self._example_id_to_file_name = {}
+        # The dict whose key is the pickle file path, and value is the metadata
+        # of such pickle file.
         self._file_name_to_metadata = {}
 
     def process_one_tfrecord(self, scenario):
         """Converts the Scenario proto to the key-val dict. Inserts such
-        dict into the _converted_data_list array.
+        dict into the _converted_data_list array. There are 6 steps for the data
+        processing (all the coordinations are sdc centralized):
+            1) process sdc history features which are [history_timestamps, sdc attributions];
+            2) process sdc future features which are [future_timestamps, 4], the elements are x, y,
+                heading, valid;
+            3) process other agent history features which are: [# other agents, 
+                history_timestamps, other agent's attributions]; 
+            4) process other agent future features which are [# other agents, future_timestamps, 4];
+            5) process map features which are [num of polylines, attributions];
+            6) process metadata features.
 
         Args:
             scenario: scenario_pb2.Scenario object.
@@ -42,7 +57,7 @@ class DataConverter:
             None
         """
         one_data_instance = {}
-        # Process the sdc_history feature.
+        # 1) Process the sdc_history feature.
         # The feature dimensions are: [history_timestamps, attributions]. The attributions
         # include x, y, z, heading, v_x, v_y, length, width, height, valid],
         # which are centralized based on the sdc's current pose (i.e. x, y, heading).
@@ -55,40 +70,7 @@ class DataConverter:
                 current_sdc_state.center_z, current_sdc_state.heading, sdc_track.states[i]))
         one_data_instance['sdc_history_feature'] = np.array(sdc_history_feature)
 
-        # Process the other agent history feature.
-        # The feature dimensions are: [# other agents, history_timestamps, attributions]. The
-        # attributions include x, y, z, heading, v_x, v_y, length, width, height, valid],
-        # which are centralized based on the sdc's current pose (i.e. x, y, heading).
-        agent_history_feature = []
-        for agent_idx in range(len(scenario.tracks)):
-            if agent_idx == scenario.sdc_track_index: continue
-            one_agent_feature = []
-            for i in range(scenario.current_time_index):            
-                one_agent_feature.append(self.normalize_object_state(
-                    current_sdc_state.center_x,current_sdc_state.center_y, 
-                    current_sdc_state.center_z, current_sdc_state.heading, scenario.tracks[agent_idx].states[i]))
-            agent_history_feature.append(one_agent_feature)
-        def agent_dist_to_sdc(agent_feature_list):
-            for agent_at_time in agent_feature_list:
-                if agent_at_time[-1]:
-                    return agent_at_time[0] ** 2.0 + agent_at_time[1] ** 2.0
-            return 1e6
-        agent_history_feature.sort(key=agent_dist_to_sdc)
-        # Cut the agent by max_agent_num or append it with zeros.
-        if len(agent_history_feature) > self._max_agent_num:
-            agent_history_feature = agent_history_feature[0 : self._max_agent_num]
-        elif len(agent_history_feature) < self._max_agent_num:
-            zero_feature = [0] * 10
-            zero_agent_feature = [zero_feature] * scenario.current_time_index
-            for _ in range(self._max_agent_num - len(agent_history_feature)):
-                agent_history_feature.append(zero_agent_feature)
-        one_data_instance['agent_history_feature'] = np.array(agent_history_feature)
-        
-        # TODO (haoyu): process the other agent future groundtruth.
-        # The feature dimensions are: [# other agents, future_timestamps, attributions],
-        # which are centralized based on the sdc's current pose (i.e. x, y, heading).
-
-        # Process the sdc future groundtruth.
+        # 2) Process the sdc future groundtruth.
         # The feature dimensions are: [future_timestamps, 4], the elements are x, y,
         # heading, valid, which are centralized based on the sdc's current pose 
         # (i.e. x, y, heading).
@@ -99,8 +81,58 @@ class DataConverter:
                 current_sdc_state.center_z, current_sdc_state.heading, sdc_track.states[i],
                 is_label=True))
         one_data_instance['sdc_future_feature'] = np.array(sdc_future_feature)
+        all_timestamps_count = len(sdc_track.states)
 
-        # Process the roadmap polyline features.
+        # 3 & 4) Process the other agent history and future feature.
+        # The feature dimensions are: [# other agents, history_timestamps, attributions]. The
+        # attributions include x, y, z, heading, v_x, v_y, length, width, height, valid],
+        # which are centralized based on the sdc's current pose (i.e. x, y, heading).
+        agent_all_timestamps_feature = []
+        for agent_idx in range(len(scenario.tracks)):
+            if agent_idx == scenario.sdc_track_index: continue
+            one_agent_feature = []
+            for ts in range(all_timestamps_count):            
+                one_agent_feature.append(self.normalize_object_state(
+                    current_sdc_state.center_x,current_sdc_state.center_y, 
+                    current_sdc_state.center_z, current_sdc_state.heading, scenario.tracks[agent_idx].states[ts]))
+            agent_all_timestamps_feature.append(one_agent_feature)
+        def agent_dist_to_sdc(agent_feature_list):
+            for agent_at_time in agent_feature_list:
+                if agent_at_time[-1]:
+                    return agent_at_time[0] ** 2.0 + agent_at_time[1] ** 2.0
+            return 1e6
+        agent_all_timestamps_feature.sort(key=agent_dist_to_sdc)
+        # Cut the agent by max_agent_num or append it with zeros.
+        if len(agent_all_timestamps_feature) > self._max_agent_num:
+            agent_all_timestamps_feature = agent_all_timestamps_feature[0 : self._max_agent_num]
+        elif len(agent_all_timestamps_feature) < self._max_agent_num:
+            zero_feature = [0] * 10
+            zero_agent_feature = [zero_feature] * all_timestamps_count
+            for _ in range(self._max_agent_num - len(agent_all_timestamps_feature)):
+                agent_all_timestamps_feature.append(zero_agent_feature)
+
+        # Separates the history agent features and future agent features.
+        agent_history_feature = []
+        agent_future_feature = []
+        # The idx corresponds to x, y, heading, valid.
+        future_attribution_idx = [0, 1, 3, 9]
+        for agent_idx in range(self._max_agent_num):
+            one_agent_all_timestamps_feature = agent_all_timestamps_feature[agent_idx]
+            one_agent_history_feature = []
+            one_agent_future_feature = []
+            for history_ts in range(scenario.current_time_index):
+                one_agent_history_feature.append(one_agent_all_timestamps_feature[history_ts])
+            agent_history_feature.append(one_agent_history_feature)
+            for future_ts in range(scenario.current_time_index + 1, all_timestamps_count):
+                one_agent_one_timestamp_feature = [one_agent_all_timestamps_feature[future_ts][idx] for idx in future_attribution_idx]
+                one_agent_future_feature.append(one_agent_one_timestamp_feature)
+            agent_future_feature.append(one_agent_future_feature)
+        one_data_instance['agent_history_feature'] = np.array(agent_history_feature)
+        # The feature dimensions are: [# other agents, future_timestamps, attributions],
+        # which are centralized based on the sdc's current pose (i.e. x, y, heading).
+        one_data_instance['agent_future_feature'] = np.array(agent_future_feature)
+
+        # 5) Process the roadmap polyline features.
         # The feautre dimensions are: [num of polylines, attributions]. The attributions
         # are: [x_s, y_s, x_e, y_e, p_x, p_y, |P|, |e-s|, lane_type, lane_id].
         map_feature = []
@@ -142,7 +174,7 @@ class DataConverter:
                 map_feature.append(zero_agent_feature)
         one_data_instance['map_feature'] = np.array(map_feature)
 
-        # process the metadata features.
+        # 6) process the metadata features.
         one_data_instance['scenario_id'] = scenario.scenario_id
         self._converted_data_list.append(one_data_instance)
 
