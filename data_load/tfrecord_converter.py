@@ -134,7 +134,7 @@ class DataConverter:
 
         # 5) Process the roadmap polyline features.
         # The feautre dimensions are: [num of polylines, attributions]. The attributions
-        # are: [x_s, y_s, x_e, y_e, p_x, p_y, |P|, |e-s|, lane_type, lane_id].
+        # are: [x_s, y_s, x_e, y_e, p_x, p_y, |P|, |e-s|, lane_type, lane_id, valid].
         map_feature = []
         for m_feature in scenario.map_features:
             if m_feature.HasField("lane"):
@@ -165,13 +165,14 @@ class DataConverter:
         def polyline_dist_to_sdc(polyline_feature_list):
             return polyline_feature_list[6]
         map_feature.sort(key=polyline_dist_to_sdc)
-        # Cut the agent by max_agent_num or append it with zeros.
+        # Cut the polyline features by max_polyline_num or append it with zeros.
         if len(map_feature) > self._max_polyline_num:
             map_feature = map_feature[0 : self._max_polyline_num]
         elif len(agent_history_feature) < self._max_polyline_num:
-            zero_feature = [0] * 10
+            # 11 means the total dimension here.
+            zero_polyline_feature = [0] * 11
             for _ in range(self._max_polyline_num - len(map_feature)):
-                map_feature.append(zero_agent_feature)
+                map_feature.append(zero_polyline_feature)
         one_data_instance['map_feature'] = np.array(map_feature)
 
         # 6) process the metadata features.
@@ -192,7 +193,7 @@ class DataConverter:
 
         Returns: list of list of extracted features. Each list element is a list 
             of feature attributions: [s_x, s_y, e_x, e_y, p_x, p_y,
-            distance to ego, and length of polyline, lane_type, lane_id]
+            distance to ego, and length of polyline, lane_type, lane_id, valid]
         """
         results = []
         for point_idx in range(len(points)- 1):
@@ -202,6 +203,8 @@ class DataConverter:
                 sdc_x, sdc_y, sdc_heading)
             one_polyline_feature.append(lane_type)
             one_polyline_feature.append(lane_id)
+            # Appends valid which is always true here.
+            one_polyline_feature.append(1.0)
             results.append(one_polyline_feature)
         return results
 
@@ -373,7 +376,7 @@ class DataConverter:
 if __name__ == '__main__':
     filenames = [
         '/home/willch/Proj/waymo_open_challenage/data/training/uncompressed_scenario_training_training.tfrecord-00000-of-01000']
-    data_converter = DataConverter(64, 1024)
+    data_converter = DataConverter(64, 4096)
     #data_converter.process_one_tfrecord_file(filenames[0], '/home/willch/Proj/waymo_open_challenage/pickle_files/test/test.pickle')
     data_converter.process_all_tfrecord_file(
         '/home/willch/Proj/waymo_open_challenage/data/training/',
