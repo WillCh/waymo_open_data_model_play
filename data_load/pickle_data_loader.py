@@ -30,7 +30,7 @@ class WaymoMotionPickleDataset(Dataset):
         if src_file_name == self._current_data_file:
             return self._converted_data_list[
                 idx - self._current_file_metadata['start_idx']]
-        
+
         with open(src_file_name, 'rb') as handle:
             self._converted_data_list = pickle.load(handle)
         self._current_data_file = src_file_name
