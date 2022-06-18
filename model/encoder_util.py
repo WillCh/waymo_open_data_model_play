@@ -2,6 +2,8 @@ from typing import Tuple
 import torch
 from torch import nn
 
+
+# MLP layer.
 class MlpNet(nn.Module):
     def __init__(self, input_dimension: int, 
                  output_dimension: int) -> None:
@@ -15,11 +17,12 @@ class MlpNet(nn.Module):
             nn.Linear(output_dimension * 2, output_dimension),
         )
 
-    def forward(self, input):
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
         x = self.flatten(input)
         return self.linear_relu_stack(input)
 
 
+# Context gating layer, which is based on multipath++ paper.
 class CgNet(nn.Module):
     def __init__(self, element_attribution_dim: int,
                  context_attribution_dim: int,
@@ -65,6 +68,7 @@ class CgNet(nn.Module):
         return elements_mul, ctx_updated
 
 
+# Multi-context gating layer, which is based on multipath++ paper.
 class McgNet(nn.Module):
     def __init__(self, element_attribution_dim: int,
                  context_attribution_dim: int,
@@ -100,17 +104,30 @@ class McgNet(nn.Module):
 
         return updated_elements, updated_context
 
+
+# Learnable query decoder which is based on multipath++ paper.
 class LearnableQuery(nn.Module):
     def __init__(self, num_query: int, query_dim: int,
-                 context_dim: int) -> None:
+                 context_dim: int, internal_embed_size) -> None:
         super(LearnableQuery, self).__init__()
         self.query = torch.nn.Parameter(torch.randn(num_query, query_dim))
         self.mcg = McgNet(query_dim, context_dim,
-                          internal_embed_size=32, num_cg=3)
+                          internal_embed_size=internal_embed_size,
+                          num_cg=3)
         self.query_dim = query_dim
         self.num_query = num_query
 
-    def forward(self, context: torch.Tensor) -> torch.Tensor:
+    def forward(self, context: torch.Tensor) -> Tuple[torch.Tensor]:
+        """Forward function for one learnable query.
+        
+        Args:
+            context: tensor whose dimensions are [B, ...]
+
+        Returns:
+            Two decoded tensors. The 1st one is the trajectories, whose
+            dimensions are [B, num_query, internal_embed_size]. The 2nd
+            one is the context, whose dimensions are [B, internal_embed_size].
+        """
         batch_size = context.shape[0]
         expanded_query = self.query.view(
             1, self.num_query, self.query_dim)
