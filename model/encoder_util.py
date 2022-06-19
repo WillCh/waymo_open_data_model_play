@@ -10,9 +10,7 @@ class MlpNet(nn.Module):
         super(MlpNet, self).__init__()
         self.flatten = nn.Flatten()
         self.linear_relu_stack = nn.Sequential(
-            nn.Linear(input_dimension, output_dimension * 4),
-            nn.ReLU(),
-            nn.Linear(output_dimension * 4, output_dimension * 2),
+            nn.Linear(input_dimension, output_dimension * 2),
             nn.ReLU(),
             nn.Linear(output_dimension * 2, output_dimension),
         )
@@ -110,7 +108,8 @@ class LearnableQuery(nn.Module):
     def __init__(self, num_query: int, query_dim: int,
                  context_dim: int, internal_embed_size) -> None:
         super(LearnableQuery, self).__init__()
-        self.query = torch.nn.Parameter(torch.randn(num_query, query_dim))
+        self.query = torch.nn.Parameter(torch.randn(num_query, query_dim),
+                                        requires_grad=True)
         self.mcg = McgNet(query_dim, context_dim,
                          internal_embed_size=internal_embed_size, num_cg=2)
         self.query_dim = query_dim

@@ -31,12 +31,11 @@ class BaselineSimplyMp(nn.Module):
             num_trajs, query_dim=32, context_dim=64+64+32, 
             internal_embed_size=self.learnable_embed_dim)
         self.traj_regression_mlp_decoder = MlpNet(
-            input_dimension=128, output_dimension=num_future_states*2)
-        self.traj_likelihood_mlp_decoder = MlpNet(
-            input_dimension=128, output_dimension=num_trajs)
+            input_dimension=self.learnable_embed_dim,
+            output_dimension=num_future_states*2)
         self.num_trajs = num_trajs
         self.num_future_states = num_future_states
-        self.likelihood_softmax = nn.Softmax(dim=1)
+        self.logit_mlp = MlpNet(self.learnable_embed_dim, output_dimension=1)
 
     def forward(self, sdc_history: torch.Tensor,
                 agent_history: torch.Tensor, 
@@ -67,14 +66,13 @@ class BaselineSimplyMp(nn.Module):
             agent_embedding, sdc_embedding)
         _, map_embedding = self.map_encoder(map, sdc_embedding)
         ctx_embed = torch.cat((sdc_embedding, agent_embedding, map_embedding), dim=1)
-        # Decoded traj should be [B, num_trajs, internal_embed], decoded_ctx should be
-        # [B, internal_embed].
-        decoded_traj, decoded_ctx = self.learnable_decoder(ctx_embed)
-        decoded_traj = decoded_traj.reshape(batch_size * self.num_trajs, 
+        # Decoded traj should be [B, num_trajs, internal_embed].
+        decoded_traj, _ = self.learnable_decoder(ctx_embed)
+        reshaped_traj = decoded_traj.reshape(batch_size * self.num_trajs, 
                                             self.learnable_embed_dim)
-        decoded_traj = self.traj_regression_mlp_decoder(decoded_traj)
+        decoded_traj = self.traj_regression_mlp_decoder(reshaped_traj)
         decoded_traj = decoded_traj.reshape(
             batch_size, self.num_trajs, self.num_future_states * 2)
-        traj_likelihood = self.likelihood_softmax(
-            self.traj_likelihood_mlp_decoder(decoded_ctx))
-        return decoded_traj, traj_likelihood
+        traj_logit = self.logit_mlp(reshaped_traj)
+        traj_logit = traj_logit.reshape(batch_size, self.num_trajs)
+        return decoded_traj, traj_logit
