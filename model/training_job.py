@@ -4,7 +4,7 @@ sys.path.insert(0, '/home/willch/Proj/waymo_open_challenage')
 import torch
 from torch.utils.data import DataLoader
 from waymo_open_data_model_play.data_load.pickle_data_loader import WaymoMotionPickleDataset
-from waymo_open_data_model_play.model.navie_model import MlpSdcNet
+from waymo_open_data_model_play.model.navie_model import BaselineSimplyMp
 
 
 if __name__ == '__main__':
@@ -21,8 +21,13 @@ if __name__ == '__main__':
 
     batch_size = 32
     train_dataloader = DataLoader(waymo_train_data_set,
-                                batch_size,
-                                shuffle=True)
+                                  batch_size,
+                                  shuffle=True)
+
+    model = BaselineSimplyMp(
+        num_future_states=80, num_trajs=3,
+        history_timestamps=10, sdc_attribution_dim=10,
+        agent_attribution_dim=10, map_attribution_dim=11).to(device)
 
     for one_data_instance in train_dataloader:
         print(one_data_instance['sdc_history_feature'].shape)
