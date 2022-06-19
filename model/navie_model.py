@@ -6,6 +6,7 @@ from torch import nn
 from waymo_open_data_model_play.model.encoder_util import MlpNet, McgNet, LearnableQuery
 
 
+
 class BaselineSimplyMp(nn.Module):
     def __init__(self, num_future_states, num_trajs,
                  history_timestamps, sdc_attribution_dim,
@@ -13,8 +14,10 @@ class BaselineSimplyMp(nn.Module):
         super(BaselineSimplyMp, self).__init__()
         self.sdc_history_encoder = MlpNet(
             history_timestamps * sdc_attribution_dim, output_dimension=32)
+        self.agent_history_mlp_pre_cg_encoder = MlpNet(
+            history_timestamps * agent_attribution_dim, output_dimension=32)
         self.agent_history_encoder = McgNet(
-            element_attribution_dim=agent_attribution_dim,
+            element_attribution_dim=32,
             context_attribution_dim=32,
             internal_embed_size=64,
             num_cg=2)
@@ -28,7 +31,7 @@ class BaselineSimplyMp(nn.Module):
             num_trajs, query_dim=32, context_dim=64+64+32, 
             internal_embed_size=self.learnable_embed_dim)
         self.traj_regression_mlp_decoder = MlpNet(
-            input_dimension=128, output_dimension=num_trajs*num_future_states*2)
+            input_dimension=128, output_dimension=num_future_states*2)
         self.traj_likelihood_mlp_decoder = MlpNet(
             input_dimension=128, output_dimension=num_trajs)
         self.num_trajs = num_trajs
@@ -55,14 +58,18 @@ class BaselineSimplyMp(nn.Module):
             [B, num_traj].
         """
         batch_size = sdc_history.shape[0]
+        num_agent = agent_history.shape[1]
         sdc_embedding = self.sdc_history_encoder(sdc_history)
+        agent_embedding = self.agent_history_mlp_pre_cg_encoder(
+            agent_history.view(batch_size * num_agent, -1))
+        agent_embedding = agent_embedding.view(batch_size, num_agent, -1)
         _, agent_embedding = self.agent_history_encoder(
-            agent_history, sdc_embedding)
+            agent_embedding, sdc_embedding)
         _, map_embedding = self.map_encoder(map, sdc_embedding)
-        ctx_embd = torch.cat((sdc_embedding, agent_embedding, map_embedding), dim=1)
+        ctx_embed = torch.cat((sdc_embedding, agent_embedding, map_embedding), dim=1)
         # Decoded traj should be [B, num_trajs, internal_embed], decoded_ctx should be
         # [B, internal_embed].
-        decoded_traj, decoded_ctx = self.learnable_decoder(ctx_embd)
+        decoded_traj, decoded_ctx = self.learnable_decoder(ctx_embed)
         decoded_traj = decoded_traj.reshape(batch_size * self.num_trajs, 
                                             self.learnable_embed_dim)
         decoded_traj = self.traj_regression_mlp_decoder(decoded_traj)

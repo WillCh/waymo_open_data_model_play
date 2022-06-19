@@ -19,7 +19,7 @@ class MlpNet(nn.Module):
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         x = self.flatten(input)
-        return self.linear_relu_stack(input)
+        return self.linear_relu_stack(x)
 
 
 # Context gating layer, which is based on multipath++ paper.
@@ -112,8 +112,7 @@ class LearnableQuery(nn.Module):
         super(LearnableQuery, self).__init__()
         self.query = torch.nn.Parameter(torch.randn(num_query, query_dim))
         self.mcg = McgNet(query_dim, context_dim,
-                          internal_embed_size=internal_embed_size,
-                          num_cg=3)
+                         internal_embed_size=internal_embed_size, num_cg=2)
         self.query_dim = query_dim
         self.num_query = num_query
 
