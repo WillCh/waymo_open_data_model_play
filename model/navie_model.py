@@ -3,7 +3,7 @@ import torch
 
 from typing import Tuple
 from torch import nn
-from waymo_open_data_model_play.model.encoder_util import MlpNet, McgNet, LearnableQuery
+from waymo_open_data_model_play.model.encoder_util import MlpNet, CgNet, LearnableQuery
 
 
 
@@ -16,16 +16,14 @@ class BaselineSimplyMp(nn.Module):
             history_timestamps * sdc_attribution_dim, output_dimension=32)
         self.agent_history_mlp_pre_cg_encoder = MlpNet(
             history_timestamps * agent_attribution_dim, output_dimension=32)
-        self.agent_history_encoder = McgNet(
+        self.agent_history_encoder = CgNet(
             element_attribution_dim=32,
             context_attribution_dim=32,
-            internal_embed_size=64,
-            num_cg=2)
-        self.map_encoder = McgNet(
+            internal_embed_size=64)
+        self.map_encoder = CgNet(
             element_attribution_dim=map_attribution_dim,
             context_attribution_dim=32,
-            internal_embed_size=64,
-            num_cg=3)
+            internal_embed_size=64)
         self.learnable_embed_dim = 128
         self.learnable_decoder = LearnableQuery(
             num_trajs, query_dim=32, context_dim=64+64+32, 
@@ -72,7 +70,7 @@ class BaselineSimplyMp(nn.Module):
                                             self.learnable_embed_dim)
         decoded_traj = self.traj_regression_mlp_decoder(reshaped_traj)
         decoded_traj = decoded_traj.reshape(
-            batch_size, self.num_trajs, self.num_future_states * 2)
+            batch_size, self.num_trajs, self.num_future_states, 2)
         traj_logit = self.logit_mlp(reshaped_traj)
         traj_logit = traj_logit.reshape(batch_size, self.num_trajs)
         return decoded_traj, traj_logit

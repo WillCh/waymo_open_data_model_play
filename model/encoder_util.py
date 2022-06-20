@@ -110,8 +110,8 @@ class LearnableQuery(nn.Module):
         super(LearnableQuery, self).__init__()
         self.query = torch.nn.Parameter(torch.randn(num_query, query_dim),
                                         requires_grad=True)
-        self.mcg = McgNet(query_dim, context_dim,
-                         internal_embed_size=internal_embed_size, num_cg=2)
+        self.mcg = CgNet(query_dim, context_dim,
+                         internal_embed_size=internal_embed_size)
         self.query_dim = query_dim
         self.num_query = num_query
 
