@@ -379,9 +379,9 @@ if __name__ == '__main__':
     data_converter = DataConverter(64, 4096)
     #data_converter.process_one_tfrecord_file(filenames[0], '/home/willch/Proj/waymo_open_challenage/pickle_files/test/test.pickle')
     data_converter.process_all_tfrecord_file(
-        '/home/willch/Proj/waymo_open_challenage/data/training/',
-        '/home/willch/Proj/waymo_open_challenage/pickle_files/training/',
-        'uncompressed_scenario_training_training', 'converted_pickle_data')
+        '/home/willch/Proj/waymo_open_challenage/data/validating/',
+        '/home/willch/Proj/waymo_open_challenage/pickle_files/validating/',
+        'uncompressed_scenario_validation_validation', 'converted_pickle_data')
     """
     raw_dataset = tf.data.TFRecordDataset(filenames)
     num = 0
